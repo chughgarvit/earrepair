@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>EarRepair clip check</title>
+<style>
+  :root { --ground: #0b0f1c; --surface: #151b2e; --raised: #1f2740; --line: #2a3352; --ink: #eef1f8;
+          --muted: #a2abc2; --accent: #3db5a2; --on-accent: #052521; --bad: #ff8f7e; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink);
+         font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+  main { max-width: 620px; margin: 0 auto; padding: 20px 16px 40px; display: grid; gap: 12px; }
+  h1 { margin: 0; font-size: 1.5rem; }
+  p { margin: 0; color: var(--muted); }
+  button { font: inherit; color: var(--ink); background: var(--raised); border: 0; border-radius: 10px;
+           padding: 8px 12px; cursor: pointer; }
+  button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button.flag[aria-pressed="true"] { background: var(--bad); color: #2b0d06; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--surface);
+         border: 1px solid var(--line); border-radius: 12px; }
+  .row span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  textarea { width: 100%; height: 90px; font: 0.85rem ui-monospace, Consolas, monospace; color: var(--ink);
+             background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Clip check</h1>
+  <p>Listen to every name before the first participant. Flag any that sound wrong: they can then be fixed in tools/make_stimuli.py or re-recorded.</p>
+  <div id="list" style="display:grid;gap:6px"></div>
+  <p>Flagged names:</p>
+  <textarea id="flags" readonly aria-label="Flagged names"></textarea>
+</main>
+<script src="stimuli.js"></script>
+<script src="plan.js"></script>
+<script>
+const names = [...new Set(STIMULI.sets.flat().flatMap(i => i.names.concat(i.foil || [])).concat(STIMULI.practice.flat()))].sort();
+const flagged = new Set();
+const audio = new Audio();
+const play = id => { audio.src = `audio/${id}.wav`; audio.play(); };
+const optionNames = new Set(STIMULI.sets.flat().flatMap(i => i.names).concat(STIMULI.practice.flat()));
+document.getElementById('list').replaceChildren(...names.map(name => {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const label = document.createElement('span');
+  label.textContent = name;
+  row.append(label);
+  const add = (text, onclick) => {
+    const b = document.createElement('button');
+    b.textContent = text; b.onclick = onclick; row.append(b);
+    return b;
+  };
+  const slug = EarPlan.slug(name);
+  if (optionNames.has(name)) add('Option', () => play('n_' + slug));
+  add('Request', () => play('t_' + slug));
+  const flag = add('Flag', () => {
+    const on = !flagged.has(name);
+    if (on) flagged.add(name); else flagged.delete(name);
+    flag.setAttribute('aria-pressed', String(on));
+    document.getElementById('flags').value = [...flagged].join('\n');
+  });
+  flag.className = 'flag';
+  flag.setAttribute('aria-pressed', 'false');
+  return row;
+}));
+</script>
+</body>
+</html>
