@@ -2,6 +2,7 @@
 
     python analysis/analyze.py data/            # folder with earrepair_*_trials.csv and *_blocks.csv
     python analysis/analyze.py --selftest       # checks this script on made-up numbers
+    python analysis/analyze.py data/ --latex paper/results.tex   # also writes the paper's numbers
 
 Decided before seeing data, so the pilot cannot be tuned to its own results:
   * Test trials only. Interrupted attempts are dropped. A timeout counts as an error.
@@ -69,15 +70,20 @@ def holm(ps):
     return out
 
 
-def report(name, table, unit="", scale=1, digits=2):
+LATEX = {}   # measure key -> numbers for the paper, filled by report(..., key=...)
+
+
+def report(name, table, unit="", scale=1, digits=2, key=None):
     """table: {pid: {condition: value}}. Only people with all three conditions are compared."""
     people = sorted(p for p, v in table.items() if all(c in v for c in CONDITIONS))
     print(f"\n{name}  (n={len(people)})")
     if len(people) < 2:
         print("  not enough people to compare")
         return
+    store = {"n": len(people), "digits": digits, "cond": {}, "pairs": {}}
     for c in CONDITIONS:
         values = [table[p][c] * scale for p in people]
+        store["cond"][c] = (statistics.mean(values), statistics.stdev(values))
         print(f"  {c:9s} mean {statistics.mean(values):.{digits}f}{unit}  sd {statistics.stdev(values):.{digits}f}"
               f"  median {statistics.median(values):.{digits}f}")
     results = []
@@ -90,8 +96,34 @@ def report(name, table, unit="", scale=1, digits=2):
                         paired_test(a, b)))
     adjusted = holm([r[5] for r in results])
     for (x, y, mean, ci, dz, p), padj in zip(results, adjusted):
+        store["pairs"][y] = (mean, ci, dz, padj)
         print(f"  {x} - {y}: {mean:+.{digits}f}{unit} [95% CI {ci[0]:+.{digits}f}, {ci[1]:+.{digits}f}]"
               f"  dz {dz:+.2f}  p {p:.4f}  Holm p {padj:.4f}")
+    if key:
+        LATEX[key] = store
+
+
+def write_latex(path, n_people):
+    """Macros for the paper. Names: \\res<Measure><Cond> = mean, \\res<Measure>Sd<Cond> = sd,
+    \\res<Measure>Vs<Numbered|Plain> = spatial minus that condition, \\res<Measure>Ci<...> = '[lo, hi]',
+    \\res<Measure>P<...> = Holm p."""
+    cap = {"numbered": "Numbered", "plain": "Plain", "spatial": "Spatial"}
+    lines = ["% Written by analysis/analyze.py. Do not edit by hand: rerun the analysis.",
+             "\\haveresultstrue", f"\\newcommand{{\\resN}}{{{n_people}}}"]
+    for key, s in sorted(LATEX.items()):
+        d = s["digits"]
+        lines.append(f"\\newcommand{{\\res{key}N}}{{{s['n']}}}")
+        for c, (mean, sd) in s["cond"].items():
+            lines.append(f"\\newcommand{{\\res{key}{cap[c]}}}{{{mean:.{d}f}}}")
+            lines.append(f"\\newcommand{{\\res{key}Sd{cap[c]}}}{{{sd:.{d}f}}}")
+        for other, (mean, ci, dz, padj) in s["pairs"].items():
+            lines.append(f"\\newcommand{{\\res{key}Vs{cap[other]}}}{{${mean:+.{d}f}$}}")
+            lines.append(f"\\newcommand{{\\res{key}Ci{cap[other]}}}{{[${ci[0]:+.{d}f}$, ${ci[1]:+.{d}f}$]}}")
+            lines.append(f"\\newcommand{{\\res{key}P{cap[other]}}}{{{padj:.3f}}}")
+            lines.append(f"\\newcommand{{\\res{key}Dz{cap[other]}}}{{${dz:+.2f}$}}")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"\nwrote {len(lines)} lines of LaTeX macros -> {path}")
 
 
 def per_person(rows, value):
@@ -129,12 +161,14 @@ def analyse(trials, blocks):
     if delays:
         print(f"reported output delay: median {statistics.median(delays):.0f} ms, max {max(delays):.0f} ms")
 
-    report("Time to answer, from list start (correct, target present)", per_person(test, median_rt), " s", 0.001)
+    report("Time to answer, from list start (correct, target present)", per_person(test, median_rt), " s", 0.001,
+           key="Time")
     report("  same, confusable names only",
            per_person([r for r in test if r["similarity"] == "confusable"], median_rt), " s", 0.001)
     report("  same, distinct names only",
            per_person([r for r in test if r["similarity"] == "distinct"], median_rt), " s", 0.001)
-    report("Accuracy, all trials", per_person(test, lambda rs: share(rs, lambda r: r["correct"] == "1")), "%", 100, 1)
+    report("Accuracy, all trials", per_person(test, lambda rs: share(rs, lambda r: r["correct"] == "1")), "%", 100, 1,
+           key="Acc")
     report("  accuracy, confusable names only",
            per_person([r for r in test if r["similarity"] == "confusable"],
                       lambda rs: share(rs, lambda r: r["correct"] == "1")), "%", 100, 1)
@@ -167,7 +201,7 @@ def analyse(trials, blocks):
     raw = {}
     for r in blocks:
         raw.setdefault(r["pid"], {})[r["condition"]] = statistics.mean(float(r["tlx_" + k]) for k in TLX)
-    report("Raw TLX, mean of 6 scales (0-100, lower is better)", raw, "", 1, 1)
+    report("Raw TLX, mean of 6 scales (0-100, lower is better)", raw, "", 1, 1, key="Tlx")
     for key in ("mental", "frustration"):
         report(f"  TLX {key}", table("tlx_" + key), "", 1, 1)
 
@@ -178,7 +212,8 @@ def analyse(trials, blocks):
             baseline = float(r["lap_m"]) / float(r["baseline_lap_s"])
             speed.setdefault(r["pid"], {})[r["condition"]] = walked / baseline
     if speed:
-        report("Walking speed, share of baseline", speed, "%", 100, 1)
+        report("Walking speed, share of baseline", speed, "%", 100, 1, key="Walk")
+    return len(pids)
 
     people = {r["pid"]: r for r in blocks if r.get("pref_best")}
     print("\nPreference (people):")
@@ -217,4 +252,6 @@ if __name__ == "__main__":
         blocks = read(os.path.join(folder, "*_blocks.csv"))
         if not trials:
             sys.exit(f"no *_trials.csv files in {folder}")
-        analyse(trials, blocks)
+        n_people = analyse(trials, blocks)
+        if "--latex" in sys.argv:
+            write_latex(sys.argv[sys.argv.index("--latex") + 1], n_people)

@@ -1,0 +1,16 @@
+% Fallback for every number that results.tex provides. \providecommand never overrides a real value,
+% so after `analyze.py --latex paper/results.tex` these are unused. Without results.tex the results
+% section is switched off (\ifhaveresults is false), so none of these appear in the PDF.
+\newcommand{\phx}{\textcolor{red}{??}}
+\providecommand{\resN}{\phx}
+\makeatletter
+\@for\m:={Time,Acc,Tlx,Walk}\do{%
+  \@for\c:={Numbered,Plain,Spatial}\do{%
+    \expandafter\providecommand\csname res\m\c\endcsname{\phx}%
+    \expandafter\providecommand\csname res\m Sd\c\endcsname{\phx}}%
+  \@for\c:={Numbered,Plain}\do{%
+    \expandafter\providecommand\csname res\m Vs\c\endcsname{\phx}%
+    \expandafter\providecommand\csname res\m Ci\c\endcsname{\phx}%
+    \expandafter\providecommand\csname res\m P\c\endcsname{\phx}%
+    \expandafter\providecommand\csname res\m Dz\c\endcsname{\phx}}}
+\makeatother
